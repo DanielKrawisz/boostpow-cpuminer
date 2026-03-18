@@ -3,6 +3,10 @@
 #include <gigamonkey/script/typed_data_bip_276.hpp>
 #include <gigamonkey/schema/hd.hpp>
 
+namespace HD = Gigamonkey::HD;
+
+using typed_data = Gigamonkey::typed_data;
+
 namespace BoostPOW {
 
     int run_spend (const argh::parser &command_line, int (*spend) (const script_options &)) {
@@ -171,7 +175,7 @@ namespace BoostPOW {
                 else if (auto option = command_line ("txid"); option) option >> txid_string;
                 else throw data::exception {"option txid not provided "};
 
-                outpoint.Digest = Bitcoin::txid {txid_string};
+                outpoint.Digest = Bitcoin::TxID {txid_string};
                 if (!outpoint.Digest.valid ()) throw data::exception {} << "could not read txid " << txid_string;
 
                 if (auto positional = command_line (5); positional) positional >> outpoint.Index;
@@ -188,7 +192,7 @@ namespace BoostPOW {
         else throw data::exception {"option txid not provided "};
 
         // continue to read inputs normally.
-        outpoint.Digest = Bitcoin::txid {first_arg};
+        outpoint.Digest = Bitcoin::TxID {first_arg};
         if (!outpoint.Digest.valid ()) throw data::exception {} << "could not read txid " << first_arg;
 
         if (auto positional = command_line (3); positional) positional >> outpoint.Index;

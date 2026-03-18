@@ -3,9 +3,11 @@
 #include <gigamonkey/timechain.hpp>
 #include <jobs.hpp>
 
-using namespace Gigamonkey;
+namespace encoding = data::encoding;
+namespace Boost = Gigamonkey::Boost;
+namespace Bitcoin = Gigamonkey::Bitcoin;
 
-int main(int arg_count, char** args) {
+int main (int arg_count, char** args) {
     
     try {
         

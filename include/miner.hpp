@@ -3,12 +3,30 @@
 
 #include <gigamonkey/schema/keysource.hpp>
 #include <gigamonkey/work/solver.hpp>
+#include <gigamonkey/script/pattern/pay_to_address.hpp>
+#include <gigamonkey/script/typed_data_bip_276.hpp>
+
 #include <network.hpp>
 #include <thread>
 #include <condition_variable>
 #include <mutex>
 
+using uint256 = Gigamonkey::uint256;
+using int32_little = Gigamonkey::int32_little;
+using uint32_little = Gigamonkey::uint32_little;
+using uint64_big = Gigamonkey::uint64_big;
+using string_view = data::string_view;
+using byte_slice = data::byte_slice;
+using N = data::N;
+using exception = data::exception;
+using pay_to_address = Gigamonkey::pay_to_address;
+using typed_data = Gigamonkey::typed_data;
+using address_source = Gigamonkey::address_source;
+
+namespace work = Gigamonkey::work;
+
 namespace BoostPOW {
+    namespace Stratum = Gigamonkey::Stratum;
     
     Bitcoin::transaction mine (
         random &, 
@@ -128,7 +146,7 @@ namespace BoostPOW {
         
         void solved (const work::solution &) override;
         
-        virtual void submit (const std::pair<digest256, Boost::puzzle> &, const work::solution &) = 0;
+        virtual awaitable<void> submit (const std::pair<digest256, Boost::puzzle> &, const work::solution &) = 0;
     };
     
     struct manager : std::enable_shared_from_this<manager> {
@@ -137,8 +155,9 @@ namespace BoostPOW {
             manager *Manager;
             redeemer (manager *m) : BoostPOW::redeemer {}, Manager {m} {}
             
-            void submit (const std::pair<digest256, Boost::puzzle> &puzzle, const work::solution &solution) final override {
-                Manager->submit (puzzle, solution);
+            awaitable<void> submit (const std::pair<digest256, Boost::puzzle> &puzzle, const work::solution &solution) final override {
+                co_await Manager->submit (puzzle, solution);
+                co_return;
             }
             
             virtual ~redeemer () {}
@@ -165,7 +184,7 @@ namespace BoostPOW {
         
         virtual ~manager () {}
         
-        void submit (const std::pair<digest256, Boost::puzzle> &, const work::solution &);
+        awaitable<void> submit (const std::pair<digest256, Boost::puzzle> &, const work::solution &);
         
     private:
         std::mutex Mutex;

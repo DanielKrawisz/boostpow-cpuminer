@@ -16,8 +16,8 @@ struct test_case {
     std::optional<std::string> run ();
     
     bool result () {
-        auto r = run();
-        return bool(r) ? ExpectedSuccess && *r == ExpectedOutput : !ExpectedSuccess;
+        auto r = run ();
+        return bool (r) ? ExpectedSuccess && *r == ExpectedOutput : !ExpectedSuccess;
     }
 };
 

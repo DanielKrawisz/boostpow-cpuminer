@@ -1,26 +1,27 @@
 #include <wallet.hpp>
-#include <whatsonchain_api.hpp>
+#include <whatsonchain.hpp>
 #include <gigamonkey/fees.hpp>
 #include <gigamonkey/script/pattern/pay_to_address.hpp>
-#include <gigamonkey/incomplete.hpp>
+#include <gigamonkey/script.hpp>
 #include <gigamonkey/script/machine.hpp>
 #include <math.h>
 #include <data/io/wait_for_enter.hpp>
+#include <data/lift.hpp>
 #include <fstream>
 
-std::ostream &write_json (std::ostream &o, const p2pkh_prevout &p) {
-    return o << "{\"wif\": \"" << p.Key << "\", \"outpoint\": \"" << p.Outpoint.Digest.Value << 
+std::ostream &write_JSON (std::ostream &o, const p2pkh_prevout &p) {
+    return o << "{\"wif\": \"" << p.Key << "\", \"outpoint\": \"" << p.Outpoint.Digest <<
         "\", \"index\": " << p.Outpoint.Index << ", \"value\": " << int64 (p.Value) << "}";
 }
 
-std::ostream &write_json (std::ostream &o, const wallet &w) {
+std::ostream &write_JSON (std::ostream &o, const wallet &w) {
     
     o << "{\"prevouts\": [";
     
     list<p2pkh_prevout> p = w.Prevouts;
     
     if (!data::empty (p)) while (true) {
-        write_json (o, data::first (p));
+        write_JSON (o, data::first (p));
         p = data::rest (p);
         if (data::empty (p)) break;
         o << ", ";
@@ -30,14 +31,19 @@ std::ostream &write_json (std::ostream &o, const wallet &w) {
     
 }
 
-using nlohmann::json;
+namespace net = data::net;
 
-p2pkh_prevout read_prevout (const json &j) {
+using JSON = data::JSON;
+
+using pay_to_address = Gigamonkey::pay_to_address;
+
+using transaction_design = Gigamonkey::transaction_design;
+
+p2pkh_prevout read_prevout (const JSON &j) {
     
     return p2pkh_prevout {
         
-        Gigamonkey::digest256 {string (j["txid"])},
-        data::uint32 (j["index"]),
+        Bitcoin::outpoint {Gigamonkey::digest256 {string (j["txid"])}, data::uint32 (j["index"])},
         Bitcoin::satoshi (int64 (j["value"])),
         
         Gigamonkey::Bitcoin::secret {string (j["wif"])}
@@ -45,15 +51,15 @@ p2pkh_prevout read_prevout (const json &j) {
     
 }
 
-wallet read_json (std::istream &i) {
-    json j = json::parse (i);
+wallet read_JSON (std::istream &i) {
+    JSON j = JSON::parse (i);
     
     if (j.size () != 3 || !j.contains ("prevouts") || !j.contains ("master") || !j.contains ("index"))
         throw std::string {"invalid wallet format"};
     
     auto pp = j["prevouts"];
     list<p2pkh_prevout> prevouts;
-    for (const json p: pp) prevouts <<= read_prevout (p);
+    for (const JSON p: pp) prevouts <<= read_prevout (p);
     
     return wallet {prevouts, HD::BIP_32::secret {string (j["master"])}, data::uint32 (j["index"])};
 }
@@ -84,18 +90,20 @@ constexpr uint64 p2sh_script_size = 24;
 
 constexpr int64 dust = 500;
 
+using transaction_design = Gigamonkey::transaction_design;
+
 wallet::spent wallet::spend (Bitcoin::output to, double satoshis_per_byte) const {
     wallet w = *this;
     
     // generate change script
-    auto new_secret = Bitcoin::secret (w.Master.derive (w.Index));
+    auto new_secret = Bitcoin::secret (w.Master.derive ({w.Index}));
     w.Index++;
     
-    bytes change_script = Gigamonkey::pay_to_address::script (new_secret.address ().Digest);
+    bytes change_script = pay_to_address::script (new_secret.address ().Digest);
     
     // we create a transaction design without inputs and with an empty change output. 
     // we will figure out what these parameters are. 
-    Gigamonkey::transaction_design tx {1, {}, {to, Bitcoin::output {0, change_script}}, 0};
+    transaction_design tx {1, {}, {to, Bitcoin::output {0, change_script}}, 0};
     
     // the keys that we will use to sign the tx. 
     list<Bitcoin::secret> signing_keys {};
@@ -121,41 +129,47 @@ wallet::spent wallet::spend (Bitcoin::output to, double satoshis_per_byte) const
     }
     
     // randomize change index. 
-    uint32 change_index = std::uniform_int_distribution<data::uint32> (0, 1) (get_random_engine ());
+    uint32 change_index = std::uniform_int_distribution<data::uint32> (0, 1) (data::random::get ());
     
     Bitcoin::satoshi change_value = tx.spent () - tx.sent () - fee;
-    Bitcoin::output change{change_value, change_script};
+    Bitcoin::output change {change_value, change_script};
     
     // replace outputs with a randomized list containing the correct change amount. 
-    tx.Outputs = change_index == 0 ? list<Bitcoin::output>{change, to} : list<Bitcoin::output>{to, change};
-    
+    tx.Outputs = change_index == 0 ? list<Bitcoin::output> {change, to} : list<Bitcoin::output> {to, change};
+
+    // generate incomplete transaction for signing.
     Bitcoin::incomplete::transaction incomplete (tx);
+
+    // make all sighash documents for the incomplete transaction.
+    list<Bitcoin::sighash::document> docs;
+
+    data::for_each_by ([&] (size_t index, const Gigamonkey::transaction_design::input &i) {
+        docs <<= Bitcoin::sighash::document {incomplete, index, i.value (), Bitcoin::decompile (i.script ())};
+    }, tx.Inputs);
     
-    list<Bitcoin::sighash::document> documents = tx.documents ();
-    
-    Bitcoin::transaction complete = incomplete.complete(
-        data::map_thread([](const Bitcoin::secret &k, const Bitcoin::sighash::document &doc) -> bytes {
-            return pay_to_address::redeem(k.sign(doc), k.to_public ());
-        }, signing_keys, documents));
-    
-    uint32 index = 0;
-    list<Bitcoin::result> results = data::map_thread(
-        [&index, &incomplete] (const transaction_design::input &inp, const Bitcoin::input &inb) -> Bitcoin::result {
-            return Bitcoin::evaluate (inb.Script, inp.Prevout.script (),
-                Bitcoin::redemption_document{inp.Prevout.value (), incomplete, index++});
-        }, tx.Inputs, complete.Inputs);
-    
-    return spent {w.insert(p2pkh_prevout{complete.id(), change_index, change_value, new_secret}), complete};
+    auto completed = tx.complete (
+        // get all redeem scripts
+        lift (
+            [] (
+                const Bitcoin::secret &k,
+                const Bitcoin::sighash::document &doc) {
+                return pay_to_address::redeem (k.sign (doc), k.to_public ());
+                },
+                signing_keys, docs));
+
+    return spent {
+        w.insert (p2pkh_prevout {Bitcoin::outpoint {completed.id (), change_index}, change_value, new_secret}),
+        completed};
 }
 
 bool broadcast (const Bitcoin::transaction &t) {
     
-    whatsonchain API {};
+    WhatsOnChain::API API {};
     
     uint32 last_used = 0;
     
     try {
-        return API.transaction ().broadcast (bytes (t));
+        return data::synced ([&] () { return API.transactions ().broadcast (bytes (t)); });
     } catch (net::HTTP::response response) {
         std::cout << "invalid HTTP response caught " << response.Status << std::endl;
     } 
@@ -167,7 +181,7 @@ void write_to_file (const wallet &w, const std::string &filename) {
     std::fstream my_file;
     my_file.open (filename, std::ios::out);
     if (!my_file) throw std::string {"could not open file"};
-    write_json (my_file, w);
+    write_JSON (my_file, w);
     my_file.close ();
 }
 
@@ -175,27 +189,27 @@ wallet read_wallet_from_file (const std::string &filename) {
     std::fstream my_file;
     my_file.open (filename, std::ios::in);
     if (!my_file) throw std::string {"could not open file"};
-    return read_json (my_file);
+    return read_JSON (my_file);
 }
 
 wallet restore (const HD::BIP_32::secret &master, uint32 max_look_ahead) {
     
     wallet w {{}, master, 0};
     
-    whatsonchain API {};
+    WhatsOnChain::API API {};
     
     uint32 last_used = 0;
     
     try {
         while (true) {
             
-            Bitcoin::secret new_key = Bitcoin::secret (w.Master.derive(w.Index));
+            Bitcoin::secret new_key = Bitcoin::secret (w.Master.derive ({w.Index}));
             w.Index += 1;
             
             Bitcoin::address new_addr = new_key.address ();
             std::cout << "testing address " << new_addr << std::endl;
-            
-            auto txs = API.address ().get_unspent (new_addr);
+
+            auto txs = data::synced ([&] () {return API.addresses ().get_unspent (new_addr); });
             
             if (txs.size () == 0) {
                 if (last_used == max_look_ahead) break;
@@ -208,7 +222,7 @@ wallet restore (const HD::BIP_32::secret &master, uint32 max_look_ahead) {
             
             for (const auto &prevout : txs) {
                 std::cout << "  match found at " << prevout.Outpoint << " with value " << prevout.Value << std::endl;
-                w = w.insert (p2pkh_prevout {prevout.Outpoint.Digest, prevout.Outpoint.Index, prevout.Value, new_key});
+                w = w.insert (p2pkh_prevout {Bitcoin::outpoint {prevout.Outpoint.Digest, prevout.Outpoint.Index}, prevout.Value, new_key});
             }
             
         }

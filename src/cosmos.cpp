@@ -6,6 +6,12 @@
 #include <network.hpp>
 #include <data/io/exception.hpp>
 
+#include <data/io/random.hpp>
+
+namespace data::random {
+    bytes Personalization {string {"Cosmos wallet prototype bzooooob"}};
+}
+
 int command_generate (int arg_count, char** arg_values) {
     if (arg_count != 1) throw data::exception {"invalid number of arguments; one expected."};
     
@@ -21,7 +27,7 @@ int command_generate (int arg_count, char** arg_values) {
         user_input.push_back (x);
     } 
     
-    digest512 bits = SHA2_512 (user_input);
+    digest512 bits = Gigamonkey::SHA2_512 (user_input);
     
     secp256k1::secret secret;
     
@@ -30,7 +36,7 @@ int command_generate (int arg_count, char** arg_values) {
     std::copy (bits.begin (), bits.begin () + 32, secret.Value.begin ());
     std::copy (bits.begin () + 32, bits.end (), chain_code.begin ());
     
-    HD::BIP_32::secret master {secret, chain_code, HD::BIP_32::main};
+    HD::BIP_32::secret master {secret, chain_code, Bitcoin::net::Main};
     
     write_to_file (wallet {{}, master, 0}, filename);
     return 0;
@@ -42,7 +48,7 @@ int command_receive (int arg_count, char** arg_values) {
     std::string filename{arg_values[0]};
     auto w = read_wallet_from_file (filename);
     
-    Bitcoin::secret new_key = Bitcoin::secret (w.Master.derive (w.Index));
+    Bitcoin::secret new_key = Bitcoin::secret (w.Master.derive ({w.Index}));
     
     w.Index += 1;
     
@@ -75,7 +81,7 @@ int command_import (int arg_count, char** arg_values) {
     
     auto w = read_wallet_from_file (filename);
     
-    w = w.insert (p2pkh_prevout {txid, index, Bitcoin::satoshi {value}, key});
+    w = w.insert (p2pkh_prevout {Bitcoin::outpoint {txid, index}, Bitcoin::satoshi {value}, key});
     
     write_to_file (w, filename);
     return 0;
@@ -176,7 +182,7 @@ int command_boost (int arg_count, char** arg_values) {
     
     BoostPOW::network net {};
     
-    net.broadcast (bytes (spend.Transaction));
+    auto err = data::synced ([&] { return net.broadcast (bytes (spend.Transaction)); });
     
     write_to_file (spend.Wallet, filename);
     /*

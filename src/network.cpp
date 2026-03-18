@@ -6,7 +6,9 @@
 
 std::mutex Mutex;
 
-BoostPOW::network::broadcast_error BoostPOW::network::broadcast (const bytes &tx) {
+namespace MAPI = Gigamonkey::MAPI;
+
+awaitable<BoostPOW::network::broadcast_error> BoostPOW::network::broadcast (const bytes &tx) {
     std::lock_guard<std::mutex> lock (Mutex);
     std::cout << "broadcasting tx " << std::endl;
     
@@ -15,25 +17,31 @@ BoostPOW::network::broadcast_error BoostPOW::network::broadcast (const bytes &tx
     bool broadcast_pow_co;
     
     try {
-        broadcast_pow_co = PowCo.broadcast (tx);
+        broadcast_pow_co = co_await PowCo.broadcast (tx);
     } catch (net::HTTP::exception ex) {
-        std::cout << "exception caught broadcasting powco: " << ex.what () << std::endl;
+        std::cout << "exception caught broadcasting powco: " << ex.what ();
+        if (ex.Response) std::cout << "; response code = " << ex.Response->Status;
+        std::cout << std::endl;
         broadcast_pow_co = false;
     }
     
     try {
-        broadcast_whatsonchain = WhatsOnChain.transaction ().broadcast (tx);
+        broadcast_whatsonchain = co_await WhatsOnChain.transactions ().broadcast (tx);
     } catch (net::HTTP::exception ex) {
-        std::cout << "exception caught broadcasting whatsonchain." << ex.what () << std::endl;
+        std::cout << "exception caught broadcasting whatsonchain." << ex.what ();
+        if (ex.Response) std::cout << "; response code = " << ex.Response->Status;
+        std::cout << std::endl;
         broadcast_whatsonchain = false;
     }
     
     try {
-        auto broadcast_result = Gorilla.submit_transaction({tx});
-        broadcast_gorilla = broadcast_result.ReturnResult == BitcoinAssociation::MAPI::success;
+        auto broadcast_result = co_await Gorilla.submit_transaction ({tx});
+        broadcast_gorilla = broadcast_result.ReturnResult == MAPI::success;
         if (!broadcast_gorilla) std::cout << "Gorilla broadcast description: " << broadcast_result.ResultDescription << std::endl; 
     } catch (net::HTTP::exception ex) {
-        std::cout << "exception caught broadcasting gorilla: " << ex.what() << "; response code = " << ex.Response.Status << std::endl;
+        std::cout << "exception caught broadcasting gorilla: " << ex.what ();
+        if (ex.Response) std::cout << "; response code = " << ex.Response->Status;
+        std::cout << std::endl;
         broadcast_gorilla = false;
     }
     
@@ -41,36 +49,36 @@ BoostPOW::network::broadcast_error BoostPOW::network::broadcast (const bytes &tx
         broadcast_whatsonchain << "; gorilla = "<< broadcast_gorilla << "; pow_co = " << broadcast_pow_co << std::endl;
     
     // we don't count whatsonchain because that one seems to return false positives a lot. 
-    return broadcast_gorilla || broadcast_pow_co ? broadcast_error::none : broadcast_error::unknown;
+    co_return broadcast_gorilla || broadcast_pow_co ? broadcast_error::none : broadcast_error::unknown;
 }
 
-bytes BoostPOW::network::get_transaction (const Bitcoin::txid &txid) {
-    static map<Bitcoin::txid, bytes> cache;
+awaitable<bytes> BoostPOW::network::get_transaction (const Bitcoin::TxID &txid) {
+    static map<Bitcoin::TxID, bytes> cache;
     
     auto known = cache.contains (txid);
-    if (known) return *known;
+    if (known) co_return *known;
     
-    bytes tx = WhatsOnChain.transaction ().get_raw (txid);
+    bytes tx = co_await WhatsOnChain.transactions ().get_raw (txid);
     
     if (tx != bytes {}) cache = cache.insert (txid, tx);
     
-    return tx;
+    co_return tx;
 }
 
 // transactions by txid
-map<Bitcoin::txid, bytes> Transaction;
+map<Bitcoin::TxID, bytes> Transaction;
 
 // script histories by script hash
-map<digest256, list<Bitcoin::txid>> History;
+map<digest256, list<Bitcoin::TxID>> History;
 
-BoostPOW::jobs BoostPOW::network::jobs (uint32 limit, double max_difficulty, int64 min_value) {
+awaitable<BoostPOW::jobs> BoostPOW::network::jobs (uint32 limit, double max_difficulty, int64 min_value) {
     
     std::lock_guard<std::mutex> lock (Mutex);
 
     auto jobs_call = PowCo.jobs ().limit (limit);
     if (max_difficulty > 0) jobs_call.max_difficulty (max_difficulty);
 
-    const list<Bitcoin::prevout> jobs_api_call {jobs_call ()};
+    const list<Bitcoin::prevout> jobs_api_call {co_await jobs_call ()};
     
     BoostPOW::jobs Jobs {};
     
@@ -87,7 +95,7 @@ BoostPOW::jobs BoostPOW::network::jobs (uint32 limit, double max_difficulty, int
     
     // organize all jobs in terms of script hash. 
     for (const Bitcoin::prevout &job : jobs_api_call) {
-        digest256 script_hash = SHA2_256 (job.script ());
+        digest256 script_hash = Gigamonkey::SHA2_256 (job.script ());
         if (auto j = prevouts.find (script_hash); j != prevouts.end ()) j->second <<= job; 
         else prevouts[script_hash] = list<Bitcoin::prevout> {job};
     }
@@ -95,7 +103,7 @@ BoostPOW::jobs BoostPOW::network::jobs (uint32 limit, double max_difficulty, int
     std::cout << "found " << prevouts.size () << " separate scripts." << std::endl;
     
     // check on jobs that have been closed and are incorrectly being returned.
-    auto count_closed_job = [this, &count_closed_jobs, &redemptions] (const Bitcoin::prevout &job) -> void {
+    auto count_closed_job = [this, &count_closed_jobs, &redemptions] (const Bitcoin::prevout &job) -> awaitable<void> {
         std::cout << "  reporting closed job " << job << std::endl;
         count_closed_jobs++;
         
@@ -103,11 +111,11 @@ BoostPOW::jobs BoostPOW::network::jobs (uint32 limit, double max_difficulty, int
 
         // this usually doesn't work.
         try {
-            in = PowCo.spends (job.outpoint ());
+            in = co_await PowCo.spends (job.outpoint ());
         } catch (const net::HTTP::exception &exception) {
             // continue if this call fails, as it is not essential. 
             std::cout << "API problem: " << exception.what () <<
-                "\n\tcall: " << exception.Request.Method << " " << exception.Request.URL <<
+                "\n\tcall: " << exception.Request.Method << " " << exception.Request.host () << exception.Request.Target <<
                 "\n\theaders: " << exception.Request.Headers << 
                 "\n\tbody: \"" << exception.Request.Body << "\"" << std::endl;
         }
@@ -119,16 +127,16 @@ BoostPOW::jobs BoostPOW::network::jobs (uint32 limit, double max_difficulty, int
             auto history = History.contains (script_hash);
             
             if (!history) {
-                History = History.insert (script_hash, WhatsOnChain.script ().get_history (script_hash));
+                History = History.insert (script_hash, co_await WhatsOnChain.scripts ().get_history (script_hash));
                 history = History.contains (script_hash);
             }
             
-            for (const Bitcoin::txid &redeem_txid : *history) {
+            for (const Bitcoin::TxID &redeem_txid : *history) {
                 Bitcoin::transaction redeem_tx;
 
                 auto tx = Transaction.contains (redeem_txid);
                 if (!tx) {
-                    redeem_tx = Bitcoin::transaction (get_transaction (redeem_txid));
+                    redeem_tx = Bitcoin::transaction (co_await get_transaction (redeem_txid));
                     Transaction = Transaction.insert (redeem_txid, bytes (redeem_tx));
                 } else redeem_tx = Bitcoin::transaction (*tx);
 
@@ -141,7 +149,7 @@ BoostPOW::jobs BoostPOW::network::jobs (uint32 limit, double max_difficulty, int
 
                     auto tx = Transaction.contains (in.Reference.Digest);
                     if (!tx) {
-                        spend_tx = get_transaction (in.Reference.Digest);
+                        spend_tx = co_await get_transaction (in.Reference.Digest);
                         Transaction = Transaction.insert (in.Reference.Digest, spend_tx);
                     } else spend_tx = *tx;
                     
@@ -155,7 +163,7 @@ BoostPOW::jobs BoostPOW::network::jobs (uint32 limit, double max_difficulty, int
                         {"redeem", encoding::hex::write (bytes (redeem_tx))}*/
                     });
                     
-                    PowCo.submit_proof (bytes (redeem_tx));
+                    co_await PowCo.submit_proof (bytes (redeem_tx));
                     break;
                 }
                 
@@ -171,7 +179,7 @@ BoostPOW::jobs BoostPOW::network::jobs (uint32 limit, double max_difficulty, int
         std::cout << "  checking script " << i << " of " << prevouts.size () << " with hash " << pair.first << std::endl;
         i++;
         
-        list<UTXO> script_utxos = WhatsOnChain.script ().get_unspent (script_hash);
+        list<UTXO> script_utxos = co_await WhatsOnChain.scripts ().get_unspent (script_hash);
         std::cout << "  got unspent scripts " << script_utxos << std::endl;
         list<Bitcoin::prevout> unspent;
         
@@ -184,7 +192,7 @@ BoostPOW::jobs BoostPOW::network::jobs (uint32 limit, double max_difficulty, int
                 continue;
             }
             
-            if (closed) count_closed_job (p);
+            if (closed) co_await count_closed_job (p);
             else unspent <<= p;
         }
         
@@ -213,43 +221,46 @@ BoostPOW::jobs BoostPOW::network::jobs (uint32 limit, double max_difficulty, int
         {"valid_jobs", JSON (Jobs)}
     });
     
-    return Jobs;
+    co_return Jobs;
     
 }
 
-satoshi_per_byte BoostPOW::network::mining_fee () {
+awaitable<satoshis_per_byte> BoostPOW::network::mining_fee () {
     std::lock_guard<std::mutex> lock (Mutex);
-    auto z = Gorilla.get_fee_quote ();
+    auto z = co_await Gorilla.get_fee_quote ();
     if (!z.valid ()) throw exception {} << "invalid fee quote response received: " << string (JSON (z));
     auto j = JSON (z);
     
-    return z.Fees["standard"].MiningFee;
+    co_return z.Fees["standard"].MiningFee;
 }
 
-Boost::candidate get_powco_job (BoostPOW::network &n, const Bitcoin::outpoint &o) {
+awaitable<Boost::candidate> get_powco_job (BoostPOW::network &n, const Bitcoin::outpoint &o) {
+//    co_return Boost::candidate {};
+
     try {
         // this is supposed to work, but it actually doesn't.
-        return Boost::candidate {{n.PowCo.job (o)}};
-    } catch (const net::HTTP::exception &) {
-        // we have a failsafe while this call fails.
-        auto powco_job = n.PowCo.job (o.Digest);
+        auto z = co_await n.PowCo.job (o);
+        co_return Boost::candidate {{z}};
+    } catch (const net::HTTP::exception &) {}
 
-        // check that the vout is the same.
-        if (powco_job.outpoint ().Index != o.Index)
-            throw exception {} << "cannot find job with vout " << o.Index << " because an earlier job exists in that particular tx";
+    // we have a failsafe while this call fails.
+    auto powco_job = co_await n.PowCo.job (o.Digest);
 
-        return Boost::candidate {{powco_job}};
-    }
+    // check that the vout is the same.
+    if (powco_job.outpoint ().Index != o.Index)
+        throw exception {} << "cannot find job with vout " << o.Index << " because an earlier job exists in that particular tx";
+
+    co_return Boost::candidate {{powco_job}};
 }
 
-Boost::candidate BoostPOW::network::job (const Bitcoin::outpoint &o) {
+awaitable<Boost::candidate> BoostPOW::network::job (const Bitcoin::outpoint &o) {
     // check for job at pow co. 
-    Boost::candidate x = get_powco_job (*this, o);
+    Boost::candidate x = co_await get_powco_job (*this, o);
 
     // check for job with whatsonchain.
     auto script_hash = x.id ();
     
-    auto script_utxos = WhatsOnChain.script ().get_unspent (script_hash);
+    auto script_utxos = co_await WhatsOnChain.scripts ().get_unspent (script_hash);
     
     // is the current job in the list from whatsonchain? 
     bool match_found = false;
@@ -266,13 +277,13 @@ Boost::candidate BoostPOW::network::job (const Bitcoin::outpoint &o) {
         
         if (!inpoint.valid ()) {
             
-            auto history = WhatsOnChain.script ().get_history (script_hash);
+            auto history = co_await WhatsOnChain.scripts ().get_history (script_hash);
             
             for (const auto &history_txid : history) {
-                Bitcoin::transaction history_tx {get_transaction (history_txid)};
+                Bitcoin::transaction history_tx {co_await get_transaction (history_txid)};
                 if (!history_tx.valid ()) continue;
                 for (const Bitcoin::input &in: history_tx.Inputs) if (in.Reference == o) {
-                    PowCo.submit_proof (bytes (history_tx));
+                    co_await PowCo.submit_proof (bytes (history_tx));
                     break;
                 }
                 
@@ -281,10 +292,10 @@ Boost::candidate BoostPOW::network::job (const Bitcoin::outpoint &o) {
         }
     }
     
-    return x;
+    co_return x;
 }
 
-double BoostPOW::network::price (tm time) {
+awaitable<double> BoostPOW::network::price (tm time) {
 
     std::stringstream ss;
     ss << time.tm_mday << "-" << (time.tm_mon + 1) << "-" << (time.tm_year + 1900);
@@ -294,19 +305,19 @@ double BoostPOW::network::price (tm time) {
     std::cout << "   about to get BSV price in USD at date " << date << std::endl;
 
     auto request = CoinGecko.REST.GET ("/api/v3/coins/bitcoin-cash-sv/history", {
-        entry<data::UTF8, data::UTF8> {"date", date },
-        entry<data::UTF8, data::UTF8> {"localization", "false" }
+        data::entry<const data::UTF8, data::UTF8> {"date", date },
+        data::entry<const data::UTF8, data::UTF8> {"localization", "false" }
     });
 
     // the rate limitation for this call is hard to understand.
     // If it doesn't work we wait 30 seconds.
     while (true) {
 
-        auto response = CoinGecko (request);
+        auto response = co_await CoinGecko (request);
 
         if (response.Status == net::HTTP::status::ok) {
-            JSON info = JSON::parse (response.Body);
-            return info["market_data"]["current_price"]["usd"];
+            JSON info = JSON::parse (string (response.Body));
+            co_return info["market_data"]["current_price"]["usd"];
         }
 
         net::asio::io_context io {};

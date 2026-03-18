@@ -1,4 +1,5 @@
 #include <logger.hpp>
+#include <data/io/log.hpp>
 #include <mutex>
 
 namespace logger {

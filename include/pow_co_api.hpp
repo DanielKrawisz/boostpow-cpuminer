@@ -1,11 +1,34 @@
 #ifndef BOOSTMINER_POW_CO_API
 #define BOOSTMINER_POW_CO_API
 
-#include <data/net/asio/session.hpp>
+//#include <data/net/asio/session.hpp>
 #include <data/net/HTTP_client.hpp>
 #include <gigamonkey/boost/boost.hpp>
 
-using namespace Gigamonkey;
+namespace net = data::net;
+namespace Bitcoin = Gigamonkey::Bitcoin;
+namespace Boost = Gigamonkey::Boost;
+namespace encoding = data::encoding;
+
+using uint32 = data::uint32;
+using int64 = data::int64;
+
+using string = data::string;
+
+using UTF8 = data::UTF8;
+
+template <typename X> using maybe = data::maybe<X>;
+template <typename X> using ptr = data::ptr<X>;
+template <typename X> using awaitable = data::awaitable<X>;
+
+template <typename X> using list = data::list<X>;
+template <typename K, typename V> using dispatch = data::dispatch<K, V>;
+
+using JSON = data::JSON;
+
+using bytes = data::bytes;
+
+using digest256 = Gigamonkey::digest256;
 
 struct inpoint : Bitcoin::outpoint {
     using Bitcoin::outpoint::outpoint;
@@ -14,16 +37,18 @@ struct inpoint : Bitcoin::outpoint {
         return this->Digest.valid ();
     }
 
-    inpoint (const Bitcoin::txid &t, uint32 i) : outpoint {t, i} {}
+    inpoint (const Bitcoin::TxID &t, uint32 i) : outpoint {t, i} {}
 };
 
-struct pow_co : net::HTTP::client_blocking {
+struct pow_co : net::HTTP::client {
 
     net::asio::io_context &IO;
     ptr<net::HTTP::SSL> SSL;
     
     pow_co (net::asio::io_context &io, ptr<net::HTTP::SSL> ssl, string host = "pow.co") :
-        net::HTTP::client_blocking {ssl, net::HTTP::REST {"https", host}, tools::rate_limiter {3, 1}}, IO {io}, SSL {ssl} {}
+        net::HTTP::client {ssl, net::HTTP::REST {"https", host},
+            data::rate_limiter {3, data::millisecond {1000}}},
+        IO {io}, SSL {ssl} {}
 
     struct get_jobs_query {
         get_jobs_query &limit (uint32);
@@ -32,7 +57,7 @@ struct pow_co : net::HTTP::client_blocking {
         get_jobs_query &max_difficulty (double);
         get_jobs_query &min_difficulty (double);
 
-        list<Bitcoin::prevout> operator () ();
+        awaitable<list<Bitcoin::prevout>> operator () ();
 
         get_jobs_query (pow_co &pc) : PowCo {pc} {}
 
@@ -49,14 +74,14 @@ struct pow_co : net::HTTP::client_blocking {
         return get_jobs_query {*this};
     }
     
-    Bitcoin::prevout job (const Bitcoin::txid &);
-    Bitcoin::prevout job (const Bitcoin::outpoint &);
+    awaitable<Bitcoin::prevout> job (const Bitcoin::TxID &);
+    awaitable<Bitcoin::prevout> job (const Bitcoin::outpoint &);
     
-    inpoint spends (const Bitcoin::outpoint &);
+    awaitable<inpoint> spends (const Bitcoin::outpoint &);
     
-    void submit_proof (const bytes &);
+    awaitable<void> submit_proof (const bytes &);
     
-    bool broadcast (const bytes &);
+    awaitable<bool> broadcast (const bytes &);
 
     struct get_work_query {
         get_work_query &limit (uint32);
@@ -65,7 +90,7 @@ struct pow_co : net::HTTP::client_blocking {
         get_work_query &start (uint32);
         get_work_query &end (uint32);
 
-        JSON operator () ();
+        awaitable<JSON> operator () ();
 
         get_work_query (pow_co &pc) : PowCo {pc} {}
 
@@ -98,26 +123,26 @@ struct pow_co : net::HTTP::client_blocking {
         static std::optional<Bitcoin::prevout> job_created (const JSON &);
         static std::optional<Bitcoin::outpoint> proof_created (const JSON &);
     };
-
+/*
     struct websockets_protocol_handlers {
         virtual void job_created (const Bitcoin::prevout &) = 0;
         virtual ~websockets_protocol_handlers () {}
     };
 
     void connect (net::asio::error_handler error_handler, net::close_handler,
-        function<ptr<websockets_protocol_handlers> (ptr<net::session<const JSON &>>)>);
+        function<ptr<websockets_protocol_handlers> (ptr<net::session<const JSON &>>)>);*/
 
-    static string write (const Bitcoin::txid &);
+    static string write (const Bitcoin::TxID &);
     static string write (const Bitcoin::outpoint &);
 
-    static std::ostream &write (std::ostream &, const Bitcoin::txid &);
+    static std::ostream &write (std::ostream &, const Bitcoin::TxID &);
     static std::ostream &write (std::ostream &, const Bitcoin::outpoint &);
 
     //void connect (net::asio::error_handler error_handler, net::close_handler, net::interaction<const JSON &>);
     
 };
 
-std::ostream inline &pow_co::write (std::ostream &o, const Bitcoin::txid &txid) {
+std::ostream inline &pow_co::write (std::ostream &o, const Bitcoin::TxID &txid) {
     return o << write (txid);
 }
 

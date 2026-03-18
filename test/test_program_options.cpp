@@ -27,7 +27,7 @@ namespace BoostPOW {
     struct test_case {
         bool ExpectValid;
         stack<string> Input;
-        int ArgCount;
+        size_t ArgCount;
         char ** ArgValues;
 
         test_case (bool expect_valid, stack<string> in) :

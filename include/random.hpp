@@ -6,7 +6,6 @@
 #include <mutex>
 
 namespace BoostPOW {
-    using namespace Gigamonkey;
 
     // Some stuff having to do with random number generators. We do not need 
     // strong cryptographic random numbers for boost. It is fine to use 

@@ -5,17 +5,16 @@
 #include <miner_options.hpp>
 #include <gigamonkey/p2p/var_int.hpp>
 #include <gigamonkey/script/pattern/pay_to_address.hpp>
-#include <gigamonkey/script/typed_data_bip_276.hpp>
 #include <gigamonkey/schema/hd.hpp>
 
-#include <gigamonkey/ledger.hpp>
+#include <gigamonkey/SPV.hpp>
 #include <gigamonkey/script/machine.hpp>
 #include <gigamonkey/signature.hpp>
 #include <data/io/wait_for_enter.hpp>
 
-using namespace Gigamonkey;
-
 int spend (const BoostPOW::script_options &options) {
+
+    using pay_to_address = Gigamonkey::pay_to_address;
 
     work::compact target {work::difficulty {options.Difficulty}};
     if (!target.valid ()) throw data::exception {} << "could not read difficulty " << options.Difficulty;
@@ -51,9 +50,9 @@ int spend (const BoostPOW::script_options &options) {
 
         output_script = Boost::output_script::contract (
             category, options.Content, target,
-            bytes::from_string (options.Topic),
+            bytes (string (options.Topic)),
             user_nonce,
-            bytes::from_string (options.Data),
+            bytes (string (options.Data)),
             *options.MinerPubkeyHash,
             use_general_purpose_bits);
 
@@ -63,7 +62,7 @@ int spend (const BoostPOW::script_options &options) {
             {"target", target},
             {"difficulty", options.Difficulty},
             {"content", BoostPOW::write (options.Content)},
-            {"miner", Bitcoin::address (Bitcoin::address::main, *options.MinerPubkeyHash)},
+            {"miner", Bitcoin::address (Bitcoin::net::Main, *options.MinerPubkeyHash)},
             {"script", {
                 {"asm", Bitcoin::ASM (output_script_bytes)},
                 {"hex", encoding::hex::write (output_script_bytes)}
@@ -72,9 +71,9 @@ int spend (const BoostPOW::script_options &options) {
     } else {
         output_script = Boost::output_script::bounty (
             category, options.Content, target,
-            bytes::from_string (options.Topic),
+            bytes (string (options.Topic)),
             user_nonce,
-            bytes::from_string (options.Data),
+            bytes (string (options.Data)),
             use_general_purpose_bits);
 
         output_script_bytes = output_script.write ();
@@ -111,7 +110,7 @@ struct redeemer final : BoostPOW::redeemer, BoostPOW::multithreaded {
         this->start_threads ();
     }
     
-    void submit (const std::pair<digest256, Boost::puzzle> &puzzle, const work::solution &solution) final override {
+    awaitable<void> submit (const std::pair<digest256, Boost::puzzle> &puzzle, const work::solution &solution) final override {
         
         double fee_rate {Fees.get ()};
         
@@ -131,7 +130,7 @@ struct redeemer final : BoostPOW::redeemer, BoostPOW::multithreaded {
             {"txhex", encoding::hex::write (bytes (redeem_tx))}
         });
         
-        if (!Net.broadcast (bytes (redeem_tx))) std::cout << "broadcast failed!" << std::endl;
+        if (!(co_await Net.broadcast (bytes (redeem_tx)))) std::cout << "broadcast failed!" << std::endl;
         
         std::unique_lock<std::mutex> lock (BoostPOW::redeemer::Mutex);
         Solved = true;
@@ -161,8 +160,10 @@ int redeem (
 
     if (value <= 0 || invalid_script) {
 
-        Job = Net.job (outpoint);
+        //Job = data::synced (&BoostPOW::network::job, Net, outpoint);
         
+        Job = data::synced ([&] () { return Net.job (outpoint); });
+
         if (value <= 0) value = Job.value ();
         else if (value != Job.value ()) throw data::exception {"User provided value is incorrect"};
         
@@ -199,8 +200,8 @@ int redeem (
       {"difficulty", double (Job.difficulty ())},
       {"value", value},
       {"outpoint", BoostPOW::write (outpoint)},
-      {"miner", key.address ()},
-      {"recipient", string (address)}
+      {"miner", std::string (key.address ().encode ())},
+      {"recipient", std::string (string (address))}
     });
     
     redeemer r {Net, *Fees, address.Digest, options.Threads,

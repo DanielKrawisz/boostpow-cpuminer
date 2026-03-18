@@ -1,15 +1,12 @@
 #include <gigamonkey/script/typed_data_bip_276.hpp>
 #include <gigamonkey/script/pattern/pay_to_address.hpp>
+#include <data/select.hpp>
 #include <sv/uint256.h>
 #include <miner.hpp>
 #include <logger.hpp>
 #include <math.h>
 
-
-#include <data/net/websocket.hpp>
-
 namespace BoostPOW {
-    using uint256 = Gigamonkey::uint256;
 
     // A cpu miner function. 
     work::proof cpu_solve (const work::puzzle &p, const work::solution &initial, double max_time_seconds) {
@@ -75,7 +72,7 @@ namespace BoostPOW {
         Stratum::session_id extra_nonce_1 {r.uint32 ()};
         uint64_big extra_nonce_2 {r.uint64 ()};
         
-        work::solution initial {Bitcoin::timestamp::now (), 0, bytes_view (extra_nonce_2), extra_nonce_1};
+        work::solution initial {Bitcoin::timestamp::now (), 0, byte_slice (extra_nonce_2), extra_nonce_1};
         
         if (p.Mask != -1) initial.Share.Bits = r.uint32 ();
         
@@ -89,7 +86,7 @@ namespace BoostPOW {
         
         Bitcoin::transaction redeem {redeem_tx};
         
-        Bitcoin::txid redeem_txid = redeem.id ();
+        Bitcoin::TxID redeem_txid = redeem.id ();
         
         std::cout << "redeem tx generated: " << redeem_tx << std::endl;
         
@@ -197,9 +194,11 @@ namespace BoostPOW {
         // shouldn't happen
         if (!solution.valid ()) return;
         
-        if (work::proof {work::puzzle (Current.second), solution}.valid ()) submit (Current, solution);
+        if (work::proof {work::puzzle (Current.second), solution}.valid ())
+            data::synced (&redeemer::submit, this, Current, solution);
         
-        else if (work::proof {work::puzzle (Last.second), solution}.valid ()) submit (Last, solution);
+        else if (work::proof {work::puzzle (Last.second), solution}.valid ())
+            data::synced (&redeemer::submit, this, Last, solution);
     }
     
     void redeemer::mine (const std::pair<digest256, Boost::puzzle> &p) {
@@ -271,7 +270,7 @@ namespace BoostPOW {
         bool websockets_running = false;
 
         // we will call the API every few minutes.
-        function<void (boost::system::error_code)> periodically =
+        data::function<void (boost::system::error_code)> periodically =
             [self = this->shared_from_this (), &periodically, &timer, &count, &websockets, &websockets_running, refresh_count]
             (boost::system::error_code err) {
             if (err) throw exception {} << "unknown error: " << err;
@@ -279,10 +278,10 @@ namespace BoostPOW {
             if (count % refresh_count == 0) {
                 std::cout << "About to call jobs API " << std::endl;
                 try {
-                    self->update_jobs (self->Net.jobs (300, self->MaxDifficulty, self->MinValue));
+                    self->update_jobs (data::synced ([&] { return self->Net.jobs (300, self->MaxDifficulty, self->MinValue); }));
                 } catch (const net::HTTP::exception &exception) {
                     std::cout << "API problem: " << exception.what () <<
-                        "\n\tcall: " << exception.Request.Method << " " << exception.Request.URL <<
+                        "\n\tcall: " << exception.Request.Method << " " << exception.Request.host () << exception.Request.Target <<
                         "\n\theaders: " << exception.Request.Headers <<
                         "\n\tbody: \"" << exception.Request.Body << "\"" << std::endl;
                 } catch (const std::exception &exception) {
@@ -291,7 +290,7 @@ namespace BoostPOW {
                     std::cout << "something went wrong: " << std::endl;
                     return;
                 }
-                
+                /*
                 if (websockets && !websockets_running) {
                     try {
                         net::websocket::open (self->Net.IO,
@@ -329,7 +328,7 @@ namespace BoostPOW {
                     } catch (const std::exception& e) {
                         std::cout << "caught exception: " << e.what () << std::endl;
                     }
-                }
+                }*/
 
                 std::cout << "about to wait another " << (refresh_count * 30) << " seconds." << std::endl;
             } else {
@@ -348,7 +347,7 @@ namespace BoostPOW {
             timer.expires_after (boost::asio::chrono::seconds (30));
             timer.async_wait (periodically);
         };
-
+/*
         struct handlers : pow_co::websockets_protocol_handlers {
             manager &Manager;
 
@@ -358,7 +357,7 @@ namespace BoostPOW {
                 std::cout << "new boost prevout received via websockets: " << p << std::endl;
                 Manager.new_job (p);
             };
-        };
+        };*/
 
         auto read_json = [] (string_view x) -> JSON {
             try {
@@ -412,7 +411,7 @@ namespace BoostPOW {
         auto profitability = double (p.value ()) / difficulty;
 
         if (profitability < MinProfitability)
-            if (auto it = Jobs.Jobs.find (SHA2_256 (p.script ())); it == Jobs.Jobs.end ()) return;
+            if (auto it = Jobs.Jobs.find (Gigamonkey::SHA2_256 (p.script ())); it == Jobs.Jobs.end ()) return;
 
         Jobs.add_prevout (p);
         std::cout << "new job added" << std::endl;
@@ -501,7 +500,7 @@ namespace BoostPOW {
         for (int i = 1; i <= Redeemers.size (); i++) select_job (i);
     }
 
-    void manager::submit (const std::pair<digest256, Boost::puzzle> &puzzle, const work::solution &solution) {
+    awaitable<void> manager::submit (const std::pair<digest256, Boost::puzzle> &puzzle, const work::solution &solution) {
         
         std::unique_lock<std::mutex> lock (Mutex);
         double fee_rate {Fees.get ()};
@@ -529,7 +528,7 @@ namespace BoostPOW {
                 {"txhex", encoding::hex::write (redeem_bytes)}
             });
         
-            if (!Net.broadcast_solution (redeem_bytes)) std::cout << "broadcast failed!" << std::endl;
+            if (!(co_await Net.broadcast_solution (redeem_bytes))) std::cout << "broadcast failed!" << std::endl;
             
             auto workers = w->second.Workers;
             Jobs.Jobs.erase (w);

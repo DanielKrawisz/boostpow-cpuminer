@@ -1,6 +1,9 @@
 #include <miner.hpp>
 #include <gigamonkey/script/typed_data_bip_276.hpp>
 
+using typed_data = Gigamonkey::typed_data;
+using bytes = data::bytes;
+
 namespace BoostPOW {
 
     double working::weight (double minimum_profitability, double tilt) const {
@@ -29,7 +32,7 @@ namespace BoostPOW {
         Scripts[u.Key] = id;
     }
 
-    uint32 jobs::remove (function<bool (const working &)> f) {
+    uint32 jobs::remove (std::function<bool (const working &)> f) {
         uint32 removed = 0;
         for (auto it = Jobs.cbegin (); it != Jobs.cend ();)
             if (f (it->second)) {
@@ -74,12 +77,12 @@ namespace BoostPOW {
         throw exception {"Warning: random_select failed to select job. "};
     }
     
-    string write (const Bitcoin::txid &txid) {
-        std::stringstream txid_stream;
-        txid_stream << txid;
-        string txid_string = txid_stream.str ();
-        if (txid_string.size () < 73) throw string {"warning: txid string was "} + txid_string;
-        return txid_string.substr (7, 66);
+    string write (const Bitcoin::TxID &TxID) {
+        std::stringstream TxID_stream;
+        TxID_stream << TxID;
+        string TxID_string = TxID_stream.str ();
+        if (TxID_string.size () < 73) throw string {"warning: TxID string was "} + TxID_string;
+        return TxID_string.substr (7, 66);
     }
     
     string write (const Bitcoin::outpoint &o) {

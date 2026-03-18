@@ -7,8 +7,16 @@
 #include <argh.h>
 #include "jobs.hpp"
 
+using int32 = data::int32;
+
+using address_source = Gigamonkey::address_source;
+
+using single_address_source = Gigamonkey::single_address_source;
+using single_key_source = Gigamonkey::single_key_source;
+
+namespace encoding = data::encoding;
+
 namespace BoostPOW {
-    using namespace Gigamonkey;
 
     struct script_options {
         // Content is what is to be boosted. Could be a hash or
@@ -50,7 +58,7 @@ namespace BoostPOW {
         maybe<digest160> MinerPubkeyHash {};
 
         maybe<uint32> UserNonce {};
-        maybe<uint32> Category {};
+        maybe<int32> Category {};
     };
 
     struct redeeming_options {
