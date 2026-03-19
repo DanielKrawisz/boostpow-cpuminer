@@ -37,7 +37,7 @@ TEST (DetectBoostTest, TestDetectBoost) {
         "a541302c022044a80e8b8023e114d85acceeeca9757c9f048102de6ea7e210d61d919895e34e"
         "412103af3ead8a3ab792225bf22262f0b81a72e5070788d363ee717c5868421b75a62dffffff"
         "ff01000000000000000040006a0a6d793263656e74732c201c716e557631774f7a4d77505876"
-        "556e626e3169517054336344476e32152c20302e303134303735373231303439383133343600000000", 
+        "556e626e3169517054336344476e32152c20302e303134303735373231303439383133343600000000",
         true, "", "should return false for an input with no boost outputs"
     }, {
         "0100000001248692b3f474fcff28b86d92acf3df1103fabc760aec4a7d7c569865461fb3f501000"
@@ -66,9 +66,14 @@ TEST (DetectBoostTest, TestDetectBoost) {
         true, "6a85e7d909a6c6d28f18b051bf2c6d6f175c970c69468ff6a4aa850825098984\n", 
         "should return true for a tx with a boost output in second position"
     }};
-    
-    for (auto &tc : test_cases) EXPECT_TRUE(tc.result()) << tc.Explain;
-    
+
+    data::for_each_by ([] (size_t index, test_case &tt) {
+        try {
+            EXPECT_TRUE (tt.result ()) << tt.Explain << "; index = " << index;
+        } catch (const std::exception &x) {
+            FAIL () << "fail with exception " << x.what ();
+        }
+    }, test_cases);
 }
 
 std::optional<std::string> run (std::string command) {

@@ -28,7 +28,7 @@ namespace BoostPOW {
         bool ExpectValid;
         stack<string> Input;
         size_t ArgCount;
-        char ** ArgValues;
+        char **ArgValues;
 
         test_case (bool expect_valid, stack<string> in) :
             ExpectValid {expect_valid}, Input {in}, ArgCount {in.size ()}, ArgValues {new char *[ArgCount]} {
@@ -36,18 +36,22 @@ namespace BoostPOW {
             for (const string &w : Input) ArgValues[i++] = const_cast<char*> (w.data ());
         }
 
-        void run () const {
-            int result = BoostPOW::run (argh::parser (ArgCount, ArgValues), help, version, spend, redeem, mine);
-            bool valid = result == 0;
-            EXPECT_EQ (valid, ExpectValid) << "failure on input " << Input << "; expected " << std::boolalpha << ExpectValid;
+        void run (size_t index) const;
+
+        ~test_case () {
+            delete[] ArgValues;
         }
     };
 
+    void test_case::run (size_t index) const {
+        int result = BoostPOW::run (argh::parser (ArgCount, ArgValues), help, version, spend, redeem, mine);
+        bool valid = result == 0;
+        EXPECT_EQ (valid, ExpectValid) << "failure on input " << index << ":" << Input << "; expected " << std::boolalpha << ExpectValid;
+    }
+
     TEST (ProgramOptionsTest, TestProgramOptions) {
 
-        data::for_each_by ([] (size_t index, const test_case &test) {
-            test.run ();
-        }, stack<test_case> {
+        test_case cases[] {
             test_case {true,  {"BoostMiner", "help"}},
             test_case {true,  {"BoostMiner", "--help"}},
             test_case {true,  {"BoostMiner", "version"}},
@@ -176,7 +180,10 @@ namespace BoostPOW {
                     "000000000000000000007e6c539458959901007e819f6976a96c88acd2e72ac8",
                 "1", "0x00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff",
                 "0", "KwFevqMbSXhGxNWuVc6vuERwdXq7aDQtiLNkjPVokF87RsGMBYqZ"}}
-        });
+        };
+
+        size_t i = 0;
+        for (const test_case &test: cases) test.run (i++);
     }
 
 }

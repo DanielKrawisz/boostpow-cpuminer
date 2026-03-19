@@ -19,7 +19,6 @@ int main (int arg_count, char** args) {
         
         auto tx = Bitcoin::transaction {*read_hex};
         if (!tx.valid ()) throw data::exception {"could not read transaction"};
-        
         for (auto &o : tx.Outputs) if (Boost::output_script {o.Script}.valid ()) {
             std::cout << BoostPOW::write (tx.id ()).substr (2) << std::endl;
             return 0;
@@ -27,7 +26,10 @@ int main (int arg_count, char** args) {
         
     } catch (data::exception &e) {
         std::cout << "error: " << e.what () << std::endl;
-        return 1;
+        return 3;
+    } catch (std::exception &e) {
+        std::cout << "error: " << e.what () << std::endl;
+        return 2;
     } catch (...) {
         std::cout << "error: unknown" << std::endl;
         return 1;

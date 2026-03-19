@@ -79,10 +79,8 @@ namespace BoostPOW {
     
     string write (const Bitcoin::TxID &TxID) {
         std::stringstream TxID_stream;
-        TxID_stream << TxID;
-        string TxID_string = TxID_stream.str ();
-        if (TxID_string.size () < 73) throw string {"warning: TxID string was "} + TxID_string;
-        return TxID_string.substr (7, 66);
+        TxID_stream << std::hex << TxID;
+        return TxID_stream.str ();
     }
     
     string write (const Bitcoin::outpoint &o) {
