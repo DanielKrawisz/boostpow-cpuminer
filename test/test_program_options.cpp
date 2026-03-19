@@ -37,14 +37,17 @@ namespace BoostPOW {
         }
 
         void run () const {
-            bool valid = BoostPOW::run (argh::parser (ArgCount, ArgValues), help, version, spend, redeem, mine) == 0;
+            int result = BoostPOW::run (argh::parser (ArgCount, ArgValues), help, version, spend, redeem, mine);
+            bool valid = result == 0;
             EXPECT_EQ (valid, ExpectValid) << "failure on input " << Input << "; expected " << std::boolalpha << ExpectValid;
         }
     };
 
     TEST (ProgramOptionsTest, TestProgramOptions) {
 
-        for (auto &tx : stack<test_case> {
+        data::for_each_by ([] (size_t index, const test_case &test) {
+            test.run ();
+        }, stack<test_case> {
             test_case {true,  {"BoostMiner", "help"}},
             test_case {true,  {"BoostMiner", "--help"}},
             test_case {true,  {"BoostMiner", "version"}},
@@ -173,7 +176,7 @@ namespace BoostPOW {
                     "000000000000000000007e6c539458959901007e819f6976a96c88acd2e72ac8",
                 "1", "0x00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff",
                 "0", "KwFevqMbSXhGxNWuVc6vuERwdXq7aDQtiLNkjPVokF87RsGMBYqZ"}}
-        }) tx.run ();
+        });
     }
 
 }

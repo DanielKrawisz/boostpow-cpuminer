@@ -88,7 +88,7 @@ std::optional<std::string> run (std::string command) {
 }
     
 std::string test_case::command () {
-    return std::string {"../test/DetectBoost "} + Input;
+    return std::string {"./DetectBoost "} + Input;
 }
     
 std::optional<std::string> test_case::run () {

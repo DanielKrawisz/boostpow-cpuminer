@@ -13,20 +13,18 @@ namespace BoostPOW {
 
         script_options options;
 
-        string content_hex;
+        std::string content_hex;
 
         if (auto positional = command_line (2); positional) positional >> content_hex;
         else if (auto option = command_line ("content"); option) option >> content_hex;
-        else throw data::exception {"option content not provided "};
-
+        else throw data::exception {11} << "option content not provided ";
         options.Content = digest256 {content_hex};
-        if (!options.Content.valid ()) throw data::exception {} << "invalid content string: " << content_hex;
-
+        if (!options.Content.valid ()) throw data::exception {10} << "invalid content string: " << content_hex;
         if (auto positional = command_line (3); positional) positional >> options.Difficulty;
         else if (auto option = command_line ("difficulty"); option) option >> options.Difficulty;
         else throw data::exception {"option difficulty not provided "};
 
-        if (options.Difficulty <= 0) throw data::exception {} << "difficulty must be >= 0; value provided was " << options.Difficulty;
+        if (options.Difficulty <= 0) throw data::exception {9} << "difficulty must be >= 0; value provided was " << options.Difficulty;
 
         if (auto positional = command_line (4); positional) options.Topic = positional.str ();
         else if (auto option = command_line ("topic"); option) options.Topic = option.str ();
@@ -34,20 +32,20 @@ namespace BoostPOW {
         if (auto positional = command_line (5); positional) options.Data = positional.str ();
         else if (auto option = command_line ("data"); option) options.Data = option.str ();
 
-        string address;
+        std::string address;
 
         if (auto positional = command_line (6); positional) positional >> address;
         else if (auto option = command_line ("address"); option) option >> address;
 
         if (address != "") {
             Bitcoin::address miner_address {address};
-            if (!miner_address.valid ()) throw data::exception {} << "invalid address provided: " << address;
+            if (!miner_address.valid ()) throw data::exception {8} << "invalid address provided: " << address;
             options.MinerPubkeyHash = miner_address.digest ();
         }
 
         if (auto option = command_line ("version"); option) option >> options.Version;
 
-        if (options.Version < 1 || options.Version > 2) throw data::exception {} << "invalid script version " << options.Version;
+        if (options.Version < 1 || options.Version > 2) throw data::exception {7} << "invalid script version " << options.Version;
 
         if (auto option = command_line ("user_nonce"); option) {
             uint32 user_nonce;
@@ -67,7 +65,7 @@ namespace BoostPOW {
 
     void read_redeem_options (redeeming_options &options, const argh::parser &command_line, int secret_position, int address_position) {
 
-        string secret_string;
+        std::string secret_string;
         if (auto positional = command_line (secret_position); positional) positional >> secret_string;
         else if (auto option_wif = command_line ("wif"); option_wif) option_wif >> secret_string;
         else if (auto option_secret = command_line ("key"); option_secret) option_secret >> secret_string;
@@ -86,7 +84,7 @@ namespace BoostPOW {
 
         options.SigningKeys = std::make_shared<map_key_database> (signing_keys, 10);
 
-        string address_string;
+        std::string address_string;
         if (auto positional = command_line (address_position); positional) positional >> address_string;
         else if (auto option = command_line ("address"); option) option >> address_string;
 
@@ -158,7 +156,7 @@ namespace BoostPOW {
         Bitcoin::outpoint outpoint {};
         maybe<bytes> boost_script {};
 
-        string first_arg;
+        std::string first_arg;
         if (auto positional = command_line (2); positional) {
             positional >> first_arg;
 
@@ -170,7 +168,7 @@ namespace BoostPOW {
                 // since a boost script was provided, we look to the next argument to be a satoshi value.
                 int64 sats = read_satoshi_value (command_line, 3);
 
-                string txid_string;
+                std::string txid_string;
                 if (auto positional = command_line (4); positional) positional >> txid_string;
                 else if (auto option = command_line ("txid"); option) option >> txid_string;
                 else throw data::exception {"option txid not provided "};
@@ -203,7 +201,7 @@ namespace BoostPOW {
         read_redeem_options (options, command_line, 4, 7);
 
         {
-            string script_string;
+            std::string script_string;
             if (auto positional = command_line (5); positional) positional >> script_string;
             else if (auto option = command_line ("script"); option) option >> script_string;
             else goto no_script_provided;
@@ -268,8 +266,8 @@ namespace BoostPOW {
             std::cout << "Error: " << x << std::endl;
             return 1;
         } catch (const data::exception &x) {
-            std::cout << "Error: " << x.what() << std::endl;
-            return 1;
+            std::cout << "Error: " << x.what () << std::endl;
+            return x.Code;
         } catch (const std::exception &x) {
             std::cout << "Unexpected error: " << x.what() << std::endl;
             return 1;
