@@ -9,6 +9,7 @@
 
 using uint64 = data::uint64;
 using satoshis_per_byte = Gigamonkey::satoshis_per_byte;
+using UTF8 = data::UTF8;
 
 namespace BoostPOW {
 

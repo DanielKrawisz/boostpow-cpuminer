@@ -53,15 +53,15 @@ awaitable<list<Bitcoin::prevout>> pow_co::get_jobs_query::operator () () {
 
     dispatch<UTF8, UTF8> params {};
 
-    if (bool (Limit)) params <<= data::entry<const UTF8, UTF8> {"limit", std::to_string (*Limit)};
+    if (bool (Limit)) params <<= {"limit", std::to_string (*Limit)};
 
-    if (bool (Content)) params <<= data::entry<const UTF8, UTF8> {"content", write (*Content)};
+    if (bool (Content)) params <<= {"content", write (*Content)};
 
-    if (bool (Tag)) params <<= data::entry<const UTF8, UTF8> {"tag", *Tag};
+    if (bool (Tag)) params <<= {"tag", *Tag};
 
-    if (bool (MaxDifficulty)) params <<= data::entry<const UTF8, UTF8> {"maxDifficulty", std::to_string (*MaxDifficulty)};
+    if (bool (MaxDifficulty)) params <<= {"maxDifficulty", std::to_string (*MaxDifficulty)};
 
-    if (bool (MaxDifficulty)) params <<= data::entry<const UTF8, UTF8> {"minDifficulty", std::to_string (*MinDifficulty)};
+    if (bool (MaxDifficulty)) params <<= {"minDifficulty", std::to_string (*MinDifficulty)};
 
     auto request = net::HTTP::request (data::empty (params) ?
         PowCo.REST.GET ("/api/v1/boost/jobs") :
@@ -202,15 +202,15 @@ awaitable<JSON> pow_co::get_work_query::operator () () {
     std::cout << " calling get work " << std::endl;
     dispatch<UTF8, UTF8> params {};
 
-    if (bool (Limit)) params <<= data::entry<const UTF8, UTF8> {"limit", std::to_string (*Limit)};
+    if (bool (Limit)) params <<= {"limit", std::to_string (*Limit)};
 
-    if (bool (Tag)) params <<= data::entry<const UTF8, UTF8> {"tag", *Tag};
+    if (bool (Tag)) params <<= {"tag", *Tag};
 
-    if (bool (Offset)) params <<= data::entry<const UTF8, UTF8> {"offset", std::to_string (*Offset)};
+    if (bool (Offset)) params <<= {"offset", std::to_string (*Offset)};
 
-    if (bool (Start)) params <<= data::entry<const UTF8, UTF8> {"start", std::to_string (*Start)};
+    if (bool (Start)) params <<= {"start", std::to_string (*Start)};
 
-    if (bool (End)) params <<= data::entry<const UTF8, UTF8> {"end", std::to_string (*End)};
+    if (bool (End)) params <<= {"end", std::to_string (*End)};
 
     auto request = net::HTTP::request (data::empty (params) ?
         PowCo.REST.GET ("/api/v1/boost/work") :

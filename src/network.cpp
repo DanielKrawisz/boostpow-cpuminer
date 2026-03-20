@@ -304,9 +304,9 @@ awaitable<double> BoostPOW::network::price (tm time) {
 
     std::cout << "   about to get BSV price in USD at date " << date << std::endl;
 
-    auto request = CoinGecko.REST.GET ("/api/v3/coins/bitcoin-cash-sv/history", {
-        data::entry<const data::UTF8, data::UTF8> {"date", date },
-        data::entry<const data::UTF8, data::UTF8> {"localization", "false" }
+    auto request = CoinGecko.REST.GET ("/api/v3/coins/bitcoin-cash-sv/history", dispatch<UTF8, UTF8> {
+        {"date", date },
+        {"localization", "false" }
     });
 
     // the rate limitation for this call is hard to understand.
